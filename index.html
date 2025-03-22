@@ -1,6 +1,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <link rel="manifest" href="manifest.json">
     <style>
       body {
         background: linear-gradient(
@@ -23,5 +24,12 @@
   <script type="module">
     import init from './rust_painter.js'
     init()
+  </script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("sw.js")
+        .then(() => console.log("Service Worker registered!"))
+        .catch(err => console.error("Service Worker failed:", err));
+    }
   </script>
 </html>
