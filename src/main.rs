@@ -56,7 +56,7 @@ fn setup(
     // );
     commands.spawn((
         Mesh2d(meshes.add(Rectangle::new(1.0, 1.0))),
-        MeshMaterial2d(materials.add(CustomMaterial {uv_texture: asset_server.load("textures/uv.png")})),
+        MeshMaterial2d(materials.add(CustomMaterial {uv_texture: asset_server.load("textures/image.png")})),
         Transform::from_scale(512.0 * Vec3::ONE),
     ));
 
