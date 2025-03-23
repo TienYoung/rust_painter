@@ -3,8 +3,5 @@ name = "rust_painter"
 version = "0.1.0"
 edition = "2024"
 
-[target.wasm32-unknown-unknown]
-runner = "wasm-server-runner"
-
 [dependencies]
 bevy = "0.15.3"

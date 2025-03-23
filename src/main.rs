@@ -24,10 +24,10 @@ const ATTRIBUTE_BARYCENTRIC: MeshVertexAttribute =
 
 fn main() {
     App::new()
-        .insert_resource(AmbientLight {
-            color: Color::WHITE,
-            brightness: 1.0 / 5.0f32,
-        })
+        // .insert_resource(AmbientLight {
+        //     color: Color::WHITE,
+        //     brightness: 1.0 / 5.0f32,
+        // })
         .add_plugins((
             DefaultPlugins.set(
                 GltfPlugin::default()
@@ -43,20 +43,21 @@ fn main() {
 fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<CustomMaterial>>,
 ) {
     // Add a mesh loaded from a glTF file. This mesh has data for `ATTRIBUTE_BARYCENTRIC`.
-    let mesh = asset_server.load(
-        GltfAssetLabel::Primitive {
-            mesh: 0,
-            primitive: 0,
-        }
-        .from_asset("models/barycentric.gltf"),
-    );
+    // let mesh = asset_server.load(
+    //     GltfAssetLabel::Primitive {
+    //         mesh: 0,
+    //         primitive: 0,
+    //     }
+    //     .from_asset("models/barycentric.gltf"),
+    // );
     commands.spawn((
-        Mesh2d(mesh),
-        MeshMaterial2d(materials.add(CustomMaterial {})),
-        Transform::from_scale(150.0 * Vec3::ONE),
+        Mesh2d(meshes.add(Rectangle::new(1.0, 1.0))),
+        MeshMaterial2d(materials.add(CustomMaterial {uv_texture: asset_server.load("textures/uv.png")})),
+        Transform::from_scale(512.0 * Vec3::ONE),
     ));
 
     // Add a camera
@@ -67,7 +68,11 @@ fn setup(
 /// `ATTRIBUTE_BARYCENTRIC` to shade a white border around each triangle. The
 /// thickness of the border is animated using the global time shader uniform.
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
-struct CustomMaterial {}
+struct CustomMaterial {
+    #[texture(0)]
+    #[sampler(1)]
+    pub uv_texture : Handle<Image>
+}
 
 impl Material2d for CustomMaterial {
     fn vertex_shader() -> ShaderRef {
@@ -84,8 +89,9 @@ impl Material2d for CustomMaterial {
     ) -> Result<(), SpecializedMeshPipelineError> {
         let vertex_layout = layout.0.get_layout(&[
             Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
-            Mesh::ATTRIBUTE_COLOR.at_shader_location(1),
-            ATTRIBUTE_BARYCENTRIC.at_shader_location(2),
+            // Mesh::ATTRIBUTE_COLOR.at_shader_location(1),
+            Mesh::ATTRIBUTE_UV_0.at_shader_location(1),
+            // ATTRIBUTE_BARYCENTRIC.at_shader_location(2),
         ])?;
         descriptor.vertex.buffers = vec![vertex_layout];
         Ok(())
