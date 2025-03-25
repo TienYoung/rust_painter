@@ -1,57 +1,40 @@
-//! Renders a glTF mesh in 2D with a custom vertex attribute.
-
 use bevy::{
-    gltf::GltfPlugin, prelude::*, reflect::{DynamicTypePath, TypePath}, render::{
+    prelude::*,
+    reflect::TypePath, 
+    render::{
         extract_resource::{ExtractResource, ExtractResourcePlugin},
-        mesh::{MeshVertexAttribute, MeshVertexBufferLayoutRef},
+        mesh::MeshVertexBufferLayoutRef,
         render_asset::{RenderAssetUsages, RenderAssets},
         render_graph::{self, RenderGraph, RenderLabel},
-        render_resource::{self, binding_types::texture_storage_2d, *},
+        render_resource::{binding_types::{texture_2d_array, texture_storage_2d}, *},
         renderer::{RenderContext, RenderDevice},
-        texture::{self, GpuImage},
+        texture::GpuImage,
         Render, RenderApp, RenderSet,
-    }, sprite::{Material2d, Material2dKey, Material2dPlugin}
+    },
+    sprite::{Material2d, Material2dKey, Material2dPlugin}
 };
 use std::borrow::Cow;
 
-/// This example uses a shader source file from the assets subdirectory
 const SHADER_ASSET_PATH: &str = "shaders/custom_gltf_2d.wgsl";
-
-/// This vertex attribute supplies barycentric coordinates for each triangle.
-///
-/// Each component of the vector corresponds to one corner of a triangle. It's
-/// equal to 1.0 in that corner and 0.0 in the other two. Hence, its value in
-/// the fragment shader indicates proximity to a corner or the opposite edge.
-const ATTRIBUTE_BARYCENTRIC: MeshVertexAttribute =
-    MeshVertexAttribute::new("Barycentric", 2137464976, VertexFormat::Float32x3);
 
 fn main() {
     App::new()
-        // .insert_resource(AmbientLight {
-        //     color: Color::WHITE,
-        //     brightness: 1.0 / 5.0f32,
-        // })
         .add_plugins((
             DefaultPlugins
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "Rust Painter".to_string(),
                     resolution: (512.0, 512.0).into(),
-                    // uncomment for unthrottled FPS
-                    // present_mode: bevy::window::PresentMode::AutoNoVsync,
+                    present_mode: bevy::window::PresentMode::AutoNoVsync,
                     ..default()
                 }),
                 ..default()
-            })
-            .set(
-                GltfPlugin::default()
-                    // Map a custom glTF attribute name to a `MeshVertexAttribute`.
-                    .add_custom_vertex_attribute("_BARYCENTRIC", ATTRIBUTE_BARYCENTRIC),
-            ),
-            Material2dPlugin::<CustomMaterial>::default(),
+            }),
             PainterPlugin,
+            Material2dPlugin::<CustomMaterial>::default(),
         ))
         .add_systems(Startup, setup)
+        .add_systems(Update, update)
         .run();
 }
 
@@ -62,46 +45,54 @@ fn setup(
     mut materials: ResMut<Assets<CustomMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
-    // Add a mesh loaded from a glTF file. This mesh has data for `ATTRIBUTE_BARYCENTRIC`.
-    // let mesh = asset_server.load(
-    //     GltfAssetLabel::Primitive {
-    //         mesh: 0,
-    //         primitive: 0,
-    //     }
-    //     .from_asset("models/barycentric.gltf"),
-    // );
+    let pattern_0 = asset_server.load("textures/pattern_0.png");
+    
 
-    commands.insert_resource(PatternLayers {
-        pattern_0: asset_server.load("textures/pattern_0.png")
-    });
 
     let mut mixed_image = Image::new_fill(
         Extent3d { width: 512, height: 512, depth_or_array_layers: 1 },
         TextureDimension::D2,
-        &[0, 0, 0, 255],
+        &[0, 1, 0, 255],
         TextureFormat::Rgba8Unorm,
         RenderAssetUsages::RENDER_WORLD,
     );
-    mixed_image.texture_descriptor.usage = TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC;
-
+    mixed_image.texture_descriptor.usage = TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
     let mixed_image_handle = images.add(mixed_image);
-    commands.insert_resource(MixedPattern {
-        mixed_pattern: mixed_image_handle.clone(),
-    });
-
+    
+    // Add a 512 squre mesh
     commands.spawn((
         Mesh2d(meshes.add(Rectangle::new(1.0, 1.0))),
-        MeshMaterial2d(materials.add(CustomMaterial {uv_texture: mixed_image_handle})),
+        MeshMaterial2d(materials.add(CustomMaterial {uv_texture: mixed_image_handle.clone()})),
         Transform::from_scale(512.0 * Vec3::ONE),
     ));
-
+    
     // Add a camera
     commands.spawn(Camera2d);
+
+    commands.insert_resource(MixedPattern {
+        loaded: false,
+        pattern_0: pattern_0,
+        mixed_pattern: mixed_image_handle
+    });
 }
 
-/// This custom material uses barycentric coordinates from
-/// `ATTRIBUTE_BARYCENTRIC` to shade a white border around each triangle. The
-/// thickness of the border is animated using the global time shader uniform.
+fn update(
+    mut pattern: ResMut<MixedPattern>,
+    mut images: ResMut<Assets<Image>>,
+    asset_server: Res<AssetServer>,
+) {
+    if pattern.loaded         
+    || !asset_server
+    .load_state(pattern.pattern_0.id())
+    .is_loaded() {
+        return;
+    }
+
+    pattern.loaded = true;
+    let pattern_image = images.get_mut(&pattern.pattern_0).unwrap();
+    pattern_image.reinterpret_stacked_2d_as_array(2);
+}
+
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 struct CustomMaterial {
     #[texture(0)]
@@ -135,7 +126,9 @@ impl Material2d for CustomMaterial {
 
 #[derive(Resource, Clone, ExtractResource)]
 struct MixedPattern {
-    mixed_pattern : Handle<Image>,
+    loaded: bool,
+    pattern_0: Handle<Image>,
+    mixed_pattern: Handle<Image>,
 }
 
 struct PainterPlugin;
@@ -147,7 +140,7 @@ impl Plugin for PainterPlugin {
     fn build(&self, app: &mut App) {
         // Extract the game of life image resource from the main world into the render world
         // for operation on by the compute shader and display on the sprite.
-        app.add_plugins(ExtractResourcePlugin::<PatternLayers>::default());
+        app.add_plugins(ExtractResourcePlugin::<MixedPattern>::default());
         let render_app = app.sub_app_mut(RenderApp);
         render_app.add_systems(
             Render,
@@ -165,10 +158,10 @@ impl Plugin for PainterPlugin {
     }
 }
 
-#[derive(Resource, Clone, ExtractResource)]
-struct PatternLayers {
-    pattern_0 : Handle<Image>,
-}
+// #[derive(Resource, Clone, ExtractResource)]
+// struct PatternLayers {
+//     pattern_0 : Handle<Image>,
+// }
 
 #[derive(Resource)]
 struct PainterBindGroups([BindGroup; 1]);
@@ -176,18 +169,19 @@ struct PainterBindGroups([BindGroup; 1]);
 fn prepare_bind_group(
     mut commands: Commands,
     pipeline: Res<MixerPipeline>,
-    pattern_layers : Res<PatternLayers>,
+    // pattern_layers : Res<PatternLayers>,
     mixed_pattern : Res<MixedPattern>,
-    mut images : ResMut<Assets<Image>>,
     gpu_images: Res<RenderAssets<GpuImage>>,
     render_device: Res<RenderDevice>,
 ) {
-    let pattern_image = images.get_mut(&pattern_layers.pattern_0).unwrap();
-    pattern_image.reinterpret_stacked_2d_as_array(1);
-    let pattern_gpu_image = gpu_images.get(&pattern_layers.pattern_0).unwrap();
-
+    if !mixed_pattern.loaded {
+        return;
+    }
+    
+    let pattern_gpu_image = gpu_images.get(&mixed_pattern.pattern_0).unwrap();
+    
     let mixed_gpu_image = gpu_images.get(&mixed_pattern.mixed_pattern).unwrap();
-
+    
     let bind_group = render_device.create_bind_group(
         None,
         &pipeline.texture_bind_group_layout,
@@ -207,10 +201,13 @@ impl FromWorld for MixerPipeline {
     fn from_world(world: &mut World) -> Self {
         let render_device = world.resource::<RenderDevice>();
         let texture_bind_group_layout = render_device.create_bind_group_layout(
-            "MixerImages",
+            "MixedPattern",
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::COMPUTE,
-                (texture_storage_2d(TextureFormat::R32Float, StorageTextureAccess::WriteOnly),),
+                (
+                    texture_2d_array(TextureSampleType::Float { filterable: true }),
+                    texture_storage_2d(TextureFormat::Rgba8Unorm, StorageTextureAccess::WriteOnly),
+                ),
             ),
         );
 
@@ -242,16 +239,20 @@ impl Default for MixerNode {
 }
 
 impl render_graph::Node for MixerNode {
-    fn update(&mut self, world: &mut World) {
-        let pipeline = world.resource::<MixerPipeline>();
-        let pipeline_cache = world.resource::<PipelineCache>();
-    }
+    // fn update(&mut self, world: &mut World) {
+    //     let pipeline = world.resource::<MixerPipeline>();
+    //     let pipeline_cache = world.resource::<PipelineCache>();
+    // }
     fn run<'w>(
             &self,
             _graph: &mut render_graph::RenderGraphContext,
             render_context: &mut RenderContext<'w>,
             world: &'w World,
         ) -> Result<(), render_graph::NodeRunError> {
+            if !world.resource::<MixedPattern>().loaded {
+                return Ok(());
+            }
+
             let bind_groups = &world.resource::<PainterBindGroups>().0;
             let pipeline_cache = world.resource::<PipelineCache>();
             let pipeline = world.resource::<MixerPipeline>();        
@@ -260,11 +261,11 @@ impl render_graph::Node for MixerNode {
             .command_encoder()
             .begin_compute_pass(&ComputePassDescriptor::default());
 
-            let update_pipeline = pipeline_cache
+            let main_pipeline = pipeline_cache
             .get_compute_pipeline(pipeline.main_pipeline)
             .unwrap();
             pass.set_bind_group(0, &bind_groups[0], &[]);
-            pass.set_pipeline(update_pipeline);
+            pass.set_pipeline(main_pipeline);
             pass.dispatch_workgroups(512 / 8, 512 / 8, 1);
 
             Ok(())
