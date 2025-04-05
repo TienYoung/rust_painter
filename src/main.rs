@@ -45,8 +45,6 @@ fn setup(
     mut materials: ResMut<Assets<CustomMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
-    let pattern_0 = asset_server.load("textures/pattern_0.png");
-    
 
 
     let mut mixed_image = Image::new_fill(
@@ -68,12 +66,6 @@ fn setup(
     
     // Add a camera
     commands.spawn(Camera2d);
-
-    commands.insert_resource(MixedPattern {
-        loaded: false,
-        pattern_0: pattern_0,
-        mixed_pattern: mixed_image_handle
-    });
 }
 
 fn update(
@@ -131,6 +123,21 @@ struct MixedPattern {
     mixed_pattern: Handle<Image>,
 }
 
+#[derive(Resource)]
+struct PatternImages {
+    handles: Vec<Handle<Image>>,
+}
+
+fn load_patterns(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let mut handles  = vec![];
+    let entries = std::fs::read_dir("assets/textures/path").unwrap();
+    for entry in entries.flatten() {
+        handles.push(asset_server.load(entry.path()));
+    }
+
+    commands.insert_resource(PatternImages { handles });
+}
+
 struct PainterPlugin;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
@@ -141,6 +148,7 @@ impl Plugin for PainterPlugin {
         // Extract the game of life image resource from the main world into the render world
         // for operation on by the compute shader and display on the sprite.
         app.add_plugins(ExtractResourcePlugin::<MixedPattern>::default());
+        app.add_systems(PreStartup, load_patterns);
         let render_app = app.sub_app_mut(RenderApp);
         render_app.add_systems(
             Render,
